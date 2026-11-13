@@ -72,6 +72,13 @@ router.beforeEach((to, from, next) => {
     return;
   }
 
+  // entity_admin owns neither the product home page nor the admin dashboard;
+  // its landing page is the Entity page (first item of its nav tree).
+  if (to.name === 'product.home' && store.isEntityAdmin()) {
+    next({ name: 'Entity.list' });
+    return;
+  }
+
   // Load language first, then check permissions
   loadLanguageAsync(lang).then(() => {
     checkRole(to).then((result) => {

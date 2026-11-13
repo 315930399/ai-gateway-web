@@ -61,16 +61,21 @@
           </FormItem>
         </Col>
         <Col span="12">
-          <FormItem :label="$t('entity.parentEntity')">
+          <FormItem :label="$t('entity.parentEntity')" prop="parent_id">
             <el-select
               v-model="formData.parent_id"
               style="width: 100%;"
-              clearable
+              :clearable="!isEntityAdmin"
+              :disabled="parentSelectDisabled"
               filterable
               size="small"
               @clear="formData.parent_id = ''"
             >
-              <el-option :value="''" :label="$t('entity.noParent')" />
+              <el-option
+                v-if="!isEntityAdmin"
+                :value="''"
+                :label="$t('entity.noParent')"
+              />
               <el-option
                 v-for="item in parentEntityList"
                 :key="item.id"
@@ -79,7 +84,11 @@
               />
             </el-select>
             <p class="form-tip">
-              {{ $t('entity.parentLevelTip') }}
+              {{
+                isEntityAdmin
+                  ? $t('entity.parentSubtreeTip')
+                  : $t('entity.parentLevelTip')
+              }}
             </p>
           </FormItem>
         </Col>
@@ -141,11 +150,15 @@
     </Card>
 
     <Card :title="$t('entity.quotaInfo')" class="form-card">
+      <p v-if="rootQuotaReadonly" class="form-tip form-tip-warn">
+        {{ $t('entity.rootQuotaReadonly') }}
+      </p>
       <Row :gutter="24">
         <Col span="12">
           <FormItem :label="$t('entity.unlimitedQuota')">
             <Select
               v-model="formData.quota_plan.unlimited"
+              :disabled="rootQuotaReadonly"
               style="width: 100%;"
             >
               <Option value="true">{{ $t('entity.yes') }}</Option>
@@ -161,6 +174,7 @@
             <FormItem :label="$t('entity.passWhenNoQuota')">
               <Select
                 v-model="formData.quota_plan.pass_when_no_enough_quota"
+                :disabled="rootQuotaReadonly"
                 style="width: 100%;"
               >
                 <Option value="true">{{ $t('entity.yes') }}</Option>
@@ -172,6 +186,7 @@
             <FormItem :label="$t('entity.quotaTotal')" prop="quota_plan.quota">
               <InputNumber
                 v-model="formData.quota_plan.quota"
+                :disabled="rootQuotaReadonly"
                 :min="0"
                 :max="quotaInputMax"
                 :precision="quotaPrecision"
@@ -189,7 +204,7 @@
         <Row :gutter="24">
           <Col span="12">
             <FormItem :label="$t('entity.quotaUnit')">
-              <Select v-model="formData.quota_plan.unit" style="width: 100%;">
+              <Select v-model="formData.quota_plan.unit" :disabled="rootQuotaReadonly" style="width: 100%;">
                 <Option value="total_token">total_token</Option>
                 <Option value="RMB">RMB</Option>
               </Select>
@@ -199,6 +214,7 @@
             <FormItem :label="$t('entity.resetPeriod')">
               <Select
                 v-model="formData.quota_plan.reset_period"
+                :disabled="rootQuotaReadonly"
                 style="width: 100%;"
               >
                 <Option value="never">{{ $t('entity.resetNever') }}</Option>
@@ -542,6 +558,7 @@
 import { cloneDeep } from 'lodash';
 import { getModelGroupsFromServices } from '@/utils/model';
 import { EntityNameRegCheck, TOKEN_QUOTA_MAX, RMB_QUOTA_MAX, utf8ByteLength } from '@/utils/const';
+import store from '@/utils/store';
 
 const INT64_MAX = 9223372036854775807;
 const INT_MAX = 2147483647;
@@ -622,6 +639,17 @@ export default {
         const validateType = (rule, value, callback) => {
             if (!value || value.trim() === '') {
                 callback(new Error(this.$t('entity.selectType')));
+                return;
+            }
+            callback();
+        };
+
+        // Validate parent: entity_admin must always create below an existing
+        // Entity (the server rejects a missing parent_id for scoped users), so
+        // the "no parent" option is unavailable for that role.
+        const validateParent = (rule, value, callback) => {
+            if (that.isEntityAdmin && that.isAdd && !value) {
+                callback(new Error(this.$t('entity.parentRequired')));
                 return;
             }
             callback();
@@ -711,6 +739,7 @@ export default {
             batchLimitFields: BATCH_LIMIT_FIELDS,
             maxConcurrencyMode: 'limited',
             entityTypeList: [],
+            fetchedEntityList: [],
             modelServices: [],
             formData: {
                 name: '',
@@ -762,6 +791,12 @@ export default {
                         trigger: 'change'
                     }
                 ],
+                parent_id: [
+                    {
+                        validator: validateParent,
+                        trigger: 'change'
+                    }
+                ],
                 'quota_plan.quota': [
                     {
                         validator: validateQuota,
@@ -778,6 +813,35 @@ export default {
         };
     },
     computed: {
+        isEntityAdmin() {
+            return store.isEntityAdmin();
+        },
+        // Bound subtree root; only meaningful for entity_admin.
+        boundEntityId() {
+            return store.getEntityId();
+        },
+        // The bound root's quota plan is the platform-granted ceiling and is
+        // read-only for entity_admin (backend answers 422 if it is sent along).
+        rootQuotaReadonly() {
+            if (!this.isEntityAdmin || this.isAdd) {
+                return false;
+            }
+            const id = this.formData.id;
+            return !!id && !!this.boundEntityId && String(id) === String(this.boundEntityId);
+        },
+        // Parent is immutable for entity_admin on update (server rule), so lock
+        // the selector instead of offering a change that always fails.
+        parentSelectDisabled() {
+            return this.isEntityAdmin && !this.isAdd;
+        },
+        // entity_admin may only pick ancestors inside its own subtree; the
+        // backend already filters `GET entities`, so use that list when loaded.
+        availableEntities() {
+            if (this.isEntityAdmin && this.fetchedEntityList.length > 0) {
+                return this.fetchedEntityList;
+            }
+            return this.entityList;
+        },
         parentEntityList() {
             if (!this.formData.type) return [];
             const currentType = this.entityTypeList.find(
@@ -785,7 +849,7 @@ export default {
             );
             if (!currentType) return [];
             const currentLevel = currentType.level;
-            return this.entityList.filter(entity => {
+            return this.availableEntities.filter(entity => {
                 if (!entity || entity.id === this.currentData.id) return false;
                 const entityType = this.entityTypeList.find(
                     t => t && t.type_name === entity.type
@@ -851,6 +915,14 @@ export default {
     mounted() {
         this.fetchEntityTypeList();
         this.fetchModelServices();
+        if (this.isEntityAdmin) {
+            // Parent options must cover the whole bound subtree, not just the
+            // first page of the list passed by EntityList.
+            this.fetchSubtreeEntities();
+            if (this.isAdd && this.boundEntityId) {
+                this.formData.parent_id = String(this.boundEntityId);
+            }
+        }
     },
     methods: {
         formatNumberInput(value) {
@@ -974,6 +1046,27 @@ export default {
             this.syncMaxConcurrencyMode();
         },
 
+        fetchSubtreeEntities() {
+            // `GET entities` is already subtree-filtered for entity_admin; do
+            // not filter client-side.
+            this.$request({
+                url: 'entities',
+                method: 'get',
+                openapi: true,
+                params: {
+                    page: 1,
+                    page_size: 100
+                }
+            }).then(data => {
+                if (data.status === 200) {
+                    const payload = data.data.Data || {};
+                    this.fetchedEntityList = Array.isArray(payload.list) ? payload.list : [];
+                }
+            }).catch(() => {
+                this.fetchedEntityList = [];
+            });
+        },
+
         fetchEntityTypeList() {
             this.$request({
                 url: 'entity-types',
@@ -1083,10 +1176,28 @@ export default {
         },
 
         onTypeChange() {
+            this.syncDefaultParent();
             this.$nextTick(() => {
                 if (!this.$refs.formData) return;
                 this.$refs.formData.validateField('type');
             });
+        },
+        // Keep the parent selector meaningful for entity_admin: default to the
+        // bound root when it is a legal parent for the chosen type, otherwise
+        // clear the value so the user must pick a valid ancestor.
+        syncDefaultParent() {
+            if (!this.isAdd || !this.isEntityAdmin) {
+                return;
+            }
+            const options = this.parentEntityList.map(item => String(item.id));
+            const rootId = String(this.boundEntityId || '');
+            if (rootId && options.indexOf(rootId) >= 0) {
+                this.formData.parent_id = rootId;
+                return;
+            }
+            if (options.indexOf(String(this.formData.parent_id)) < 0) {
+                this.formData.parent_id = '';
+            }
         },
 
         syncMaxConcurrencyMode() {
@@ -1379,6 +1490,12 @@ export default {
         handleSubmit(name) {
             const form = this.$refs[name];
             form.validate(valid => {
+                // entity_admin must always create below an existing Entity
+                // (server rejects a missing parent_id for scoped users).
+                if (this.isEntityAdmin && this.isAdd && !this.formData.parent_id) {
+                    this.$Message.error(this.$t('entity.parentRequired'));
+                    return;
+                }
                 if (this.formData.quota_plan.unlimited === 'false') {
                     form.validateField('quota_plan.quota');
                 }
@@ -1397,6 +1514,18 @@ export default {
                         }
                     }
                     submitData.rate_limit_policy.enabled = submitData.rate_limit_policy.enabled === 'true';
+
+                    // entity_admin: the bound root's quota_plan is read-only. The
+                    // backend rejects the request merely for carrying the field,
+                    // so omit it entirely (other fields stay editable).
+                    if (this.rootQuotaReadonly) {
+                        delete submitData.quota_plan;
+                    }
+                    // entity_admin: parent_id is immutable on update; omit it so
+                    // the payload can never escape the subtree.
+                    if (this.isEntityAdmin && !this.isAdd) {
+                        delete submitData.parent_id;
+                    }
 
                     if (!submitData.rate_limit_policy.enabled) {
                         submitData.rate_limit_policy.rules = {
@@ -1504,6 +1633,11 @@ export default {
     font-size: 12px;
     color: #999;
     margin-top: 4px;
+}
+
+.form-tip-warn {
+    color: #ed4014;
+    margin-bottom: 12px;
 }
 
 .btn-box-del {

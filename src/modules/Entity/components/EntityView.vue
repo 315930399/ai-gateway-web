@@ -121,7 +121,7 @@
           <div class="progress-label">{{ $t('com.usageProgress') }}</div>
           <Progress :percent="quotaPercent" :stroke-width="8" />
         </div>
-        <div style="margin-top: 16px;">
+        <div v-if="!isBoundRoot" style="margin-top: 16px;">
           <Button
             v-has
             type="primary"
@@ -454,6 +454,13 @@ export default {
             if (!this.displayData.parent_id) return '';
             const parent = this.entityList.find(item => item.id === this.displayData.parent_id);
             return parent ? parent.name : '';
+        },
+        // The bound root's quota plan is platform-owned; its reset endpoint
+        // also rewrites `quota` and is rejected for that exact combination, so
+        // do not offer the action to entity_admin.
+        isBoundRoot() {
+            const boundId = this.$store.getEntityId();
+            return !!boundId && String(this.displayData.id) === String(boundId);
         }
     },
     methods: {

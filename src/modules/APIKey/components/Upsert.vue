@@ -59,7 +59,7 @@
               </Select>
             </FormItem>
           </Col>
-          <Col span="12">
+          <Col v-if="!isEntityAdmin" span="12">
             <FormItem :label="$t('apiKey.quotaCheck')">
               <Select v-model="formData.unlimited_quota" style="width: 100%">
                 <Option value="false">{{ $t("apiKey.yes") }}</Option>
@@ -68,6 +68,9 @@
             </FormItem>
           </Col>
         </Row>
+        <p v-if="isEntityAdmin" class="form-tip">
+          {{ $t("apiKey.unlimitedNotAllowed") }}
+        </p>
         <Row :gutter="24">
           <Col span="12">
             <FormItem :label="$t('apiKey.allowedModels')">
@@ -110,13 +113,13 @@
         </Row>
         <Row :gutter="24">
           <Col span="12">
-            <FormItem :label="$t('apiKey.mountedEntity')">
+            <FormItem :label="$t('apiKey.mountedEntity')" prop="entity_id">
               <el-select
                 v-model="formData.entity_id"
                 style="width: 100%"
                 filterable
                 size="small"
-                clearable
+                :clearable="!isEntityAdmin"
                 :placeholder="$t('apiKey.selectEntity')"
               >
                 <el-option
@@ -126,12 +129,18 @@
                   :label="entity.name + ' (' + entity.type + ')'"
                 />
               </el-select>
+              <p v-if="isEntityAdmin" class="form-tip">
+                {{ $t("apiKey.entityScopeTip") }}
+              </p>
             </FormItem>
           </Col>
         </Row>
       </Card>
 
       <Card :title="$t('apiKey.quotaInfo')" class="form-card">
+        <p v-if="isEntityAdmin" class="form-tip">
+          {{ $t("apiKey.quotaStackTip") }}
+        </p>
         <Row :gutter="24">
           <Col span="12">
             <FormItem :label="$t('apiKey.unlimitedQuota')">
@@ -564,6 +573,7 @@
 <script>
 import { cloneDeep } from "lodash";
 import moment from "moment";
+import store from "@/utils/store";
 import { isCidr, isCidrEqual, isCidrContained, RateLimitRuleNameRegCheck, TOKEN_QUOTA_MAX, RMB_QUOTA_MAX } from "@/utils/const";
 import { getModelGroupsFromServices } from "@/utils/model";
 
@@ -614,6 +624,15 @@ export default {
           callback(new Error(this.$t("apiKey.selectExpiredTime")));
           return;
         }
+      }
+      callback();
+    };
+
+    // Validate mounted entity (mandatory for entity_admin)
+    const validateEntityScope = (rule, value, callback) => {
+      if (that.isEntityAdmin && !value) {
+        callback(new Error(that.$t("apiKey.entityScopeRequired")));
+        return;
       }
       callback();
     };
@@ -785,7 +804,9 @@ export default {
         unlimited_quota: "false",
         models: ["*"],
         subnet: ["*"],
-        entity_id: null,
+        // entity_admin always creates keys under its own subtree root; the
+        // backend still validates it is inside the subtree.
+        entity_id: store.isEntityAdmin() ? store.getEntityId() : null,
         quota_plan: {
           unlimited: "true",
           pass_when_no_enough_quota: "false",
@@ -833,6 +854,12 @@ export default {
             trigger: "blur",
           },
         ],
+        entity_id: [
+          {
+            validator: validateEntityScope,
+            trigger: "change",
+          },
+        ],
         "quota_plan.quota": [
           {
             validator: validateQuota,
@@ -848,6 +875,15 @@ export default {
     };
   },
   computed: {
+    // entity_admin cannot detach a key from its department pool (red line R-C)
+    // and cannot enable unlimited_quota (R-A); the backend rejects both, so the
+    // UI hides them instead of offering an action that always fails.
+    isEntityAdmin() {
+      return store.isEntityAdmin();
+    },
+    defaultEntityId() {
+      return store.getEntityId();
+    },
     modelGroups() {
       return getModelGroupsFromServices(this.modelServices);
     },
@@ -1049,10 +1085,17 @@ export default {
     },
 
     fetchEntityList() {
+      // The backend already scopes `GET entities` to the bound subtree for
+      // entity_admin; do not filter client-side (that would only hide options
+      // the server allowed). page_size=100 matches the API maximum.
       this.$request({
         url: this.$urlFormat("entities"),
         method: "get",
         openapi: true,
+        params: {
+          page: 1,
+          page_size: 100,
+        },
       })
         .then((data) => {
           if (data.status === 200) {
@@ -1586,6 +1629,13 @@ export default {
       this.$nextTick(() => {
         const form = this.$refs[name];
         form.validate((valid) => {
+          // entity_admin must always mount the key on an Entity inside its
+          // subtree, and must never bypass the quota check (backend answers
+          // 422 for both); block here so an invalid payload is never sent.
+          if (this.isEntityAdmin && !this.formData.entity_id) {
+            this.$Message.error(this.$t("apiKey.entityScopeRequired"));
+            return;
+          }
           if (this.formData.quota_plan.unlimited === "false") {
             form.validateField("quota_plan.quota");
           }
@@ -1608,6 +1658,11 @@ export default {
             // Convert string boolean values to actual boolean values
             submitData.enabled = submitData.enabled === "true";
             submitData.unlimited_quota = submitData.unlimited_quota === "true";
+            // entity_admin: `unlimited_quota` is hidden and forbidden by
+            // contract (it would bypass every quota incl. the department pool).
+            if (this.isEntityAdmin) {
+              submitData.unlimited_quota = false;
+            }
             submitData.quota_plan.unlimited =
               submitData.quota_plan.unlimited === "true";
             submitData.quota_plan.pass_when_no_enough_quota =

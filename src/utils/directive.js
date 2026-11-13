@@ -30,15 +30,19 @@ const preventReClick = Vue.directive('preventReClick', {
     }
 });
 
-// 只读管理员视角：v-has 用于隐藏写操作元素（新增/编辑/删除/改密/重置配额等）。
+// 能力判定型 v-has：用于隐藏当前角色没有能力的操作元素。
+// - 无值写法 `v-has` 表示默认能力 "write"（可写），只读管理员会被隐藏；
+// - 带值写法 `v-has="'routeView'"` 表示只有具备该能力的角色才显示，
+//   entity_admin 因不在路由页导航树内，需要用能力名隐藏「管理路由规则」跳转。
 // 通过添加 CSS 类（.v-has-hidden 使用 display:none !important）隐藏，
 // 避免与 v-show 写入的内联 display 相互覆盖。
 const HIDDEN_CLASS = 'v-has-hidden';
 // 同一个名字再落一份**属性**标记，作为隐藏兜底（原因为何必须兜底见 applyHas 注释）
 const HIDDEN_ATTR = 'v-has-hidden';
+const DEFAULT_CAPABILITY = 'write';
 
 /**
- * 应用/撤销只读隐藏标记。
+ * 应用/撤销能力隐藏标记。
  *
  * 为什么 class 之外还要落一个属性：被隐藏的元素若**自身还有响应式 class**
  * （典型是 iView Button：它的根节点 `:class="classes"` 由 props 计算），
@@ -51,8 +55,12 @@ const HIDDEN_ATTR = 'v-has-hidden';
  * 实测（2026-10-17）：只读态筛选批量任务列表，行内「取消」按钮由终态变体
  * 切到非终态变体时 class 被抹掉；同轮未变体的行则保留——正是上述时序。
  */
-function applyHas(el) {
-    if (store.isReadonly()) {
+function applyHas(el, binding) {
+    const capability =
+        binding && typeof binding.value === 'string' && binding.value
+            ? binding.value
+            : DEFAULT_CAPABILITY;
+    if (!store.hasCapability(capability)) {
         el.classList.add(HIDDEN_CLASS);
         el.setAttribute(HIDDEN_ATTR, '');
     } else {

@@ -110,22 +110,29 @@ request.interceptors.response.use(
           return error.response;
         }
 
+        const errMsg = (errorMsg.ErrMsg || '').split(':')[1] || errorMsg.ErrMsg;
         if (error.response.status === 401) {
           store.removeUserData();
+          Vue.prototype.$Modal.error({
+            title: 'Error',
+            content: errMsg,
+            onOk: () => {
+              if (router.currentRoute.name !== store.getLoginRoute()) {
+                router.push({
+                  name: store.getLoginRoute(),
+                });
+              }
+            },
+          });
+        } else {
+          // 402 means "authenticated but not authorized" (e.g. an entity_admin
+          // touching a resource outside its Entity subtree). Report it without
+          // clearing the session or bouncing the user to the login page.
+          Vue.prototype.$Modal.error({
+            title: 'Error',
+            content: errMsg,
+          });
         }
-
-        const errMsg = (errorMsg.ErrMsg || '').split(':')[1] || errorMsg.ErrMsg;
-        Vue.prototype.$Modal.error({
-          title: 'Error',
-          content: errMsg,
-          onOk: () => {
-            if (router.currentRoute.name !== store.getLoginRoute()) {
-              router.push({
-                name: store.getLoginRoute(),
-              });
-            }
-          },
-        });
         error.response.isSilent = true;
         return error.response;
       }

@@ -58,7 +58,8 @@ export default async (to) => {
   if (!userData) {
     return loginRoute;
   }
-  if (!(userData.role === 'system_admin' || userData.role === 'system_admin_readonly')) {
+  if (!(userData.role === 'system_admin' || userData.role === 'system_admin_readonly'
+    || userData.role === 'entity_admin')) {
     return 'illegalAccess';
   }
 
@@ -67,7 +68,10 @@ export default async (to) => {
   }
   let curNav = store.findNav(to.name);
   if (!curNav) {
-    return loginRoute;
+    // A route outside the caller's nav tree is an authorization failure, not a
+    // session expiry: returning the login route here would silently log the
+    // user out on a deep link.
+    return 'illegalAccess';
   }
   return true;
 };

@@ -74,6 +74,7 @@ import pageTable from '@/components/table/pageTable';
 import CustomModal from '@/components/CustomModal';
 import EntityUpsert from './EntityUpsert.vue';
 import EntityView from './EntityView.vue';
+import store from '@/utils/store';
 
 export default {
     components: {
@@ -194,27 +195,30 @@ export default {
                     title: that.$t('com.operation'),
                     width: 300,
                     render(h, params) {
-                        const buttons = [
-                            h(
-                                'Button',
-                                {
-                                    props: {
-                                        type: 'success',
-                                        size: 'small'
-                                    },
-                                    style: {
-                                        marginRight: '5px'
-                                    },
-                                    on: {
-                                        click: (e) => {
-                                            e.stopPropagation();
-                                            that.onManageRules(params.row);
+                        const buttons = [];
+                        if (!that.isEntityAdmin) {
+                            buttons.push(
+                                h(
+                                    'Button',
+                                    {
+                                        props: {
+                                            type: 'success',
+                                            size: 'small'
+                                        },
+                                        style: {
+                                            marginRight: '5px'
+                                        },
+                                        on: {
+                                            click: (e) => {
+                                                e.stopPropagation();
+                                                that.onManageRules(params.row);
+                                            }
                                         }
-                                    }
-                                },
-                                that.$t('route.manageRouteRules')
-                            )
-                        ];
+                                    },
+                                    that.$t('route.manageRouteRules')
+                                )
+                            );
+                        }
                         buttons.push(
                             h(
                                 'Button',
@@ -273,6 +277,11 @@ export default {
         };
     },
     computed: {
+        // Route tables live outside the entity_admin nav; the jump button would
+        // bounce the user back to the login page, so hide it.
+        isEntityAdmin() {
+            return store.isEntityAdmin();
+        },
         isViewMode() {
             return this.isView && !this.isAdd;
         },

@@ -19,7 +19,7 @@
             <TabPane :label="$t('entity.orgManagement')" name="entity">
                 <EntityList v-if="val === 'entity'" />
             </TabPane>
-            <TabPane :label="$t('entity.typeManagement')" name="entityType">
+            <TabPane v-if="!isEntityAdmin" :label="$t('entity.typeManagement')" name="entityType">
                 <EntityTypeList v-if="val === 'entityType'" />
             </TabPane>
         </Tabs>
@@ -29,10 +29,18 @@
 <script>
 import EntityTypeList from './components/EntityTypeList.vue';
 import EntityList from './components/EntityList.vue';
+import store from '@/utils/store';
 export default {
     components: {
         EntityTypeList,
         EntityList
+    },
+    computed: {
+        // Entity types are a global dictionary owned by the platform; an
+        // entity_admin must not see (let alone edit) that tab.
+        isEntityAdmin() {
+            return store.isEntityAdmin();
+        }
     },
     data() {
         return {

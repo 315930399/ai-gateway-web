@@ -64,7 +64,24 @@
                         <Radio label="system_admin_readonly">{{
                             $t('com.sysAdminReadonly')
                         }}</Radio>
+                        <Radio label="entity_admin">{{ $t('com.entityAdmin') }}</Radio>
                     </RadioGroup>
+                </FormItem>
+                <FormItem
+                    v-if="formItem.role === 'entity_admin'"
+                    :label="$t('user.entityScope')"
+                    prop="entity_id"
+                >
+                    <Select
+                        v-model="formItem.entity_id"
+                        filterable
+                        :placeholder="$t('user.tipSelectEntity')"
+                        class="com-create-input"
+                    >
+                        <Option v-for="item in entityList" :key="item.id" :value="item.id">
+                            {{ item.name }} ({{ item.id }})
+                        </Option>
+                    </Select>
                 </FormItem>
             </Form>
             <div class="drawer-footer">
@@ -134,12 +151,21 @@ export default {
             }
             callback();
         };
+        const validateEntity = (rule, value, callback) => {
+            if (this.formItem.role === 'entity_admin' && !value) {
+                callback(new Error(this.$t('user.tipSelectEntity')));
+                return;
+            }
+            callback();
+        };
         return {
+            entityList: [],
             formItem: {
                 user_name: '',
                 password: '',
                 confirmPass: '',
-                role: 'system_admin'
+                role: 'system_admin',
+                entity_id: ''
             },
             ruleValidate: {
                 user_name: [{ required: true, validator: validateName, trigger: 'blur' }],
@@ -151,15 +177,43 @@ export default {
                         message: this.$t('user.tipSelectRole'),
                         trigger: 'change'
                     }
-                ]
+                ],
+                entity_id: [{ validator: validateEntity, trigger: 'change' }]
             }
         };
     },
+    mounted() {
+        this.loadEntities();
+    },
     methods: {
+        loadEntities() {
+            this.$request({
+                url: 'entities',
+                method: 'get',
+                openapi: true,
+                params: {
+                    page: 1,
+                    page_size: 100
+                }
+            })
+                .then(res => {
+                    if (res && res.status === 200) {
+                        const data = res.data.Data || {};
+                        this.entityList = Array.isArray(data.list) ? data.list : [];
+                    }
+                })
+                .catch(() => {});
+        },
         submitAdminUser(name) {
             this.$refs[name].validate(valid => {
                 if (valid) {
-                    this.$emit('submit', this.formItem);
+                    const payload = { ...this.formItem };
+                    // entity_id is only meaningful for entity_admin; sending it
+                    // for other roles is rejected by the API (422).
+                    if (payload.role !== 'entity_admin') {
+                        delete payload.entity_id;
+                    }
+                    this.$emit('submit', payload);
                 }
             });
         },

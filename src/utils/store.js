@@ -30,10 +30,30 @@
  */
 import Vue from 'vue';
 
-const DEFAULT_NAV_KEY = 'admin';
 const NAV_KEY_BY_ROLE = {
   system_admin: 'admin',
   system_admin_readonly: 'admin_readonly',
+  // entity_admin has its own nav subtree (Entity + API-Key only).
+  entity_admin: 'entity_admin',
+};
+
+// Capability matrix used by the v-has directive. A capability is the set of
+// roles allowed to use the element; the directive hides the element for every
+// other role. Keep this as the single source of truth instead of comparing
+// roles ad-hoc inside components.
+const CAPABILITY_ROLES = {
+  // Default capability of a bare `v-has`: "the role may write".
+  write: ['system_admin', 'entity_admin'],
+  // Entity / API-Key maintainers, bounded by the bound Entity subtree on the
+  // server side.
+  entityWrite: ['system_admin', 'entity_admin'],
+  // Global "Entity type" maintenance is a platform resource.
+  entityType: ['system_admin'],
+  // Route-rule pages are outside the entity_admin nav tree, so the jump
+  // buttons ("管理路由规则") must be hidden for that role.
+  routeView: ['system_admin', 'system_admin_readonly'],
+  // User management is platform-only.
+  user: ['system_admin'],
 };
 
 export default {
@@ -68,8 +88,13 @@ export default {
       return null;
     }
     const user = this.getUser();
-    const navKey = NAV_KEY_BY_ROLE[(user && user.role)] || DEFAULT_NAV_KEY;
-    return nav[navKey] || nav[DEFAULT_NAV_KEY] || null;
+    const navKey = NAV_KEY_BY_ROLE[(user && user.role)];
+    // Fail closed for unknown roles: falling back to the admin tree would
+    // expose the full management menu to an unrecognized role.
+    if (!navKey) {
+      return null;
+    }
+    return nav[navKey] || null;
   },
   findNav(routeName) {
     return findNav(this.getNavRoot(), routeName);
@@ -82,12 +107,32 @@ export default {
       name: newVal.user_name,
       sessionKey: newVal.session_key,
       role: newVal.role,
+      // Bound Entity subtree root; only present for entity_admin.
+      entityId: newVal.entity_id || '',
     };
     localStorage.setItem('user', JSON.stringify(this.state.user));
   },
   isReadonly() {
     const user = this.getUser();
     return !!(user && user.role === 'system_admin_readonly');
+  },
+  isEntityAdmin() {
+    const user = this.getUser();
+    return !!(user && user.role === 'entity_admin');
+  },
+  getEntityId() {
+    const user = this.getUser();
+    return (user && user.entityId) || '';
+  },
+  // Capability check backed by CAPABILITY_ROLES; used by the `v-has` directive.
+  hasCapability(name) {
+    const user = this.getUser();
+    if (!user) {
+      return false;
+    }
+    const key = name || 'write';
+    const roles = CAPABILITY_ROLES[key];
+    return !!roles && roles.indexOf(user.role) >= 0;
   },
   removeUserData() {
     this.state.user = null;

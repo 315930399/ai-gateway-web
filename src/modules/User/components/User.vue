@@ -68,7 +68,22 @@
                         <Radio label="system_admin_readonly">{{
                             $t('com.sysAdminReadonly')
                         }}</Radio>
+                        <Radio label="entity_admin">{{ $t('com.entityAdmin') }}</Radio>
                     </RadioGroup>
+                </FormItem>
+                <FormItem
+                    v-if="!isBuiltinAdmin && roleForm.role === 'entity_admin'"
+                    :label="$t('user.entityScope')"
+                >
+                    <Select
+                        v-model="roleForm.entity_id"
+                        filterable
+                        :placeholder="$t('user.tipSelectEntity')"
+                    >
+                        <Option v-for="item in entityList" :key="item.id" :value="item.id">
+                            {{ item.name }} ({{ item.id }})
+                        </Option>
+                    </Select>
                 </FormItem>
             </Form>
             <div class="drawer-footer">
@@ -76,6 +91,38 @@
                     $t('com.submit')
                 }}</Button>
                 <Button size="small" @click="roleDrawerVisible = false">{{
+                    $t('com.cancel')
+                }}</Button>
+            </div>
+        </Drawer>
+        <Drawer
+            v-model="rebindDrawerVisible"
+            :title="$t('user.rebindEntity')"
+            width="30"
+            :mask-closable="false"
+        >
+            <Form ref="rebindForm" :model="rebindForm" label-position="top">
+                <FormItem :label="$t('com.userName')">
+                    <Input v-model="rebindForm.user_name" disabled />
+                </FormItem>
+                <FormItem :label="$t('user.entityScope')">
+                    <Select
+                        v-model="rebindForm.entity_id"
+                        filterable
+                        :placeholder="$t('user.tipSelectEntity')"
+                    >
+                        <Option v-for="item in entityList" :key="item.id" :value="item.id">
+                            {{ item.name }} ({{ item.id }})
+                        </Option>
+                    </Select>
+                    <p class="form-tip">{{ $t('user.rebindEntityTip') }}</p>
+                </FormItem>
+            </Form>
+            <div class="drawer-footer">
+                <Button size="small" type="primary" @click="submitRebind">{{
+                    $t('com.submit')
+                }}</Button>
+                <Button size="small" @click="rebindDrawerVisible = false">{{
                     $t('com.cancel')
                 }}</Button>
             </div>
@@ -96,6 +143,7 @@ export default {
     },
     mounted() {
         this.getUserList();
+        this.loadEntities();
     },
     data() {
         const that = this;
@@ -105,9 +153,16 @@ export default {
             handleType: '',
             currentData: {},
             roleDrawerVisible: false,
+            rebindDrawerVisible: false,
+            entityList: [],
             roleForm: {
                 user_name: '',
-                role: 'system_admin'
+                role: 'system_admin',
+                entity_id: ''
+            },
+            rebindForm: {
+                user_name: '',
+                entity_id: ''
             },
             tableData: [],
             associatedUseList: [],
@@ -125,17 +180,29 @@ export default {
                     searchType: 'select',
                     searchFilters: [
                         { label: this.$t('com.sysAdmin'), value: 'system_admin' },
-                        { label: this.$t('com.sysAdminReadonly'), value: 'system_admin_readonly' }
+                        { label: this.$t('com.sysAdminReadonly'), value: 'system_admin_readonly' },
+                        { label: this.$t('com.entityAdmin'), value: 'entity_admin' }
                     ],
                     render(h, params) {
                         return h('span', that.roleLabel(params.row.role));
                     }
                 },
                 {
-                    key: 'action',
-                    title: this.$t('com.operation'),
+                    key: 'entity_id',
+                    title: that.$t('user.entityScope'),
+                    minWidth: 140,
                     render(h, params) {
-                        return h('div', [
+                        if (params.row.role !== 'entity_admin' || !params.row.entity_id) {
+                            return h('span', '-');
+                        }
+                        return h('span', that.entityName(params.row.entity_id));
+                    }
+                },
+                {
+                    key: 'action',
+                    title: that.$t('com.operation'),
+                    render(h, params) {
+                        const buttons = [
                             h(
                                 'Button',
                                 {
@@ -154,7 +221,33 @@ export default {
                                     }
                                 },
                                 that.$t('user.changeRole')
-                            ),
+                            )
+                        ];
+                        // Rebinding is only meaningful for entity_admin rows.
+                        if (params.row.role === 'entity_admin') {
+                            buttons.push(
+                                h(
+                                    'Button',
+                                    {
+                                        props: {
+                                            type: 'primary',
+                                            size: 'small'
+                                        },
+                                        directives: [{ name: 'has' }],
+                                        style: {
+                                            marginRight: '10px'
+                                        },
+                                        on: {
+                                            click: () => {
+                                                that.onRebindEntity(params);
+                                            }
+                                        }
+                                    },
+                                    that.$t('user.rebindEntity')
+                                )
+                            );
+                        }
+                        buttons.push(
                             h(
                                 'Button',
                                 {
@@ -173,7 +266,9 @@ export default {
                                     }
                                 },
                                 that.$t('user.changePassword')
-                            ),
+                            )
+                        );
+                        buttons.push(
                             h(
                                 'Button',
                                 {
@@ -190,7 +285,8 @@ export default {
                                 },
                                 that.$t('com.del')
                             )
-                        ]);
+                        );
+                        return h('div', buttons);
                     }
                 }
             ]
@@ -209,13 +305,73 @@ export default {
             if (role === 'system_admin') {
                 return this.$t('com.sysAdmin');
             }
+            if (role === 'entity_admin') {
+                return this.$t('com.entityAdmin');
+            }
             return this.$t('com.ordinaryUser');
+        },
+        loadEntities() {
+            this.$request({
+                url: 'entities',
+                method: 'get',
+                openapi: true,
+                params: {
+                    page: 1,
+                    page_size: 100
+                }
+            })
+                .then(res => {
+                    if (res && res.status === 200) {
+                        const data = res.data.Data || {};
+                        this.entityList = Array.isArray(data.list) ? data.list : [];
+                    }
+                })
+                .catch(() => {});
+        },
+        entityName(entityId) {
+            const entity = this.entityList.find(item => item && item.id === entityId);
+            return entity ? `${entity.name} (${entity.id})` : entityId;
+        },
+        onRebindEntity(params) {
+            this.rebindForm = {
+                user_name: params.row.user_name,
+                entity_id: params.row.entity_id || ''
+            };
+            if (this.entityList.length === 0) {
+                this.loadEntities();
+            }
+            this.rebindDrawerVisible = true;
+        },
+        submitRebind() {
+            if (!this.rebindForm.entity_id) {
+                this.$Message.error({ content: this.$t('user.tipSelectEntity') });
+                return;
+            }
+            this.$request({
+                url: this.$urlFormat('auth/users/{user_name}/entity', {
+                    user_name: this.rebindForm.user_name
+                }),
+                method: 'patch',
+                data: { entity_id: this.rebindForm.entity_id }
+            }).then(data => {
+                if (data.status === 200) {
+                    this.$Message.success({
+                        content: this.$t('com.tipEditSuccX', { obj: this.$t('user.entityScope') })
+                    });
+                    this.rebindDrawerVisible = false;
+                    this.getUserList();
+                }
+            });
         },
         onChangeRole(params) {
             this.roleForm = {
                 user_name: params.row.user_name,
-                role: params.row.role || 'system_admin'
+                role: params.row.role || 'system_admin',
+                entity_id: params.row.entity_id || ''
             };
+            if (this.entityList.length === 0) {
+                this.loadEntities();
+            }
             this.roleDrawerVisible = true;
         },
         submitRole() {
@@ -227,12 +383,22 @@ export default {
                 this.$Message.error({ content: this.$t('user.tipSelectRole') });
                 return;
             }
+            const payload = { role: this.roleForm.role };
+            if (this.roleForm.role === 'entity_admin') {
+                // A binding is mandatory for entity_admin; sending the field
+                // also covers "rebind" (same role + new entity_id is idempotent).
+                if (!this.roleForm.entity_id) {
+                    this.$Message.error({ content: this.$t('user.tipSelectEntity') });
+                    return;
+                }
+                payload.entity_id = this.roleForm.entity_id;
+            }
             this.$request({
                 url: this.$urlFormat('auth/users/{user_name}/role', {
                     user_name: this.roleForm.user_name
                 }),
                 method: 'patch',
-                data: { role: this.roleForm.role }
+                data: payload
             }).then(data => {
                 if (data.status === 200) {
                     this.$Message.success({ content: this.$t('com.tipEditSuccX', { obj: this.$t('user.role') }) });

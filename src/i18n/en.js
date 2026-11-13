@@ -82,6 +82,7 @@ export default {
     userName: 'Username',
     sysAdmin: 'System Admin',
     sysAdminReadonly: 'System Admin (Read-only)',
+    entityAdmin: 'Entity Admin',
     ordinaryUser: 'Tenant Admin',
     sysAdminView: 'System View',
     configureExportUser: 'Configure Export Admin',
@@ -282,6 +283,13 @@ export default {
     tipConfirmError: 'Password entered is inconsist. Please input again',
     tipPasswordModified: 'Passwrod modified. Please login again',
     tipSelectRole: 'Please select a role',
+    entityScope: 'Bound Entity',
+    tipSelectEntity: 'Please select the bound Entity',
+    rebindEntity: 'Rebind Entity',
+    rebindEntityTip:
+      'Takes effect immediately without re-login; the user can only manage resources inside that Entity subtree',
+    entityScopeRequired: 'An entity_admin must be bound to an Entity',
+    boundEntity: 'Bound Entity',
     tipRoleFixedBuiltin:
       'Built-in account admin has a fixed role (System Admin) and cannot be changed',
     tipUserDel: 'Current user deleted.',
@@ -568,6 +576,12 @@ export default {
     allowedSubnet: 'Allowed Subnet',
     subnetPlaceholder: 'Default "*" means no restriction',
     selectEntity: 'Please select',
+    entityScopeRequired: 'Please select the Entity to mount (required for entity_admin)',
+    entityScopeTip: 'Only Entities inside the bound Entity subtree are selectable',
+    unlimitedNotAllowed:
+      'entity_admin cannot disable the quota check (the switch bypasses all quotas including the department pool)',
+    quotaStackTip:
+      'The API-Key private quota stacks with the Entity (department pool) quota: unlimited on the key side means it only consumes the department pool',
     quotaInfo: 'Quota Info',
     unlimitedQuota: 'Unlimited Quota',
     passWhenNoQuota: 'Pass when quota insufficient',
@@ -780,7 +794,12 @@ export default {
     selectParentEntity: 'Please select parent Entity',
     noParent: 'None',
     parentLevelTip:
-      'When selecting parent Entity, the parent Entity level must be lower than current type level',
+      'The parent Entity level must be lower than the level of the selected type',
+    parentRequired: 'entity_admin must select a parent Entity when creating an Entity',
+    parentSubtreeTip:
+      'The parent Entity can only be selected from the bound Entity subtree',
+    rootQuotaReadonly:
+      'The bound root Entity quota is set by the platform and is read-only for entity_admin; other fields and the rate limit policy remain editable',
     selectAllowModels: 'Select allowed models',
     selectBlockModels: 'Select blocked models',
     noData: 'No Data',

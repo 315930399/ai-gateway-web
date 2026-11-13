@@ -311,6 +311,9 @@ export default {
                                         type: 'success',
                                         size: 'small'
                                     },
+                                    // Route tables are outside the entity_admin
+                                    // nav tree; hide the jump for that role.
+                                    directives: [{ name: 'has', value: 'routeView' }],
                                     style: {
                                         marginRight: '5px'
                                     },
